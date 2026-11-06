@@ -1,0 +1,47 @@
+name: Windows VST3 bauen
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version lesen
+        id: ver
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = (Select-String -Path CMakeLists.txt -Pattern 'project\(\w+ VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+          gh release view "v$v" 2>$null
+          if ($LASTEXITCODE -eq 0) { "neu=nein" >> $env:GITHUB_OUTPUT } else { "neu=ja" >> $env:GITHUB_OUTPUT }
+          exit 0
+      - name: Einrichten
+        run: cmake -B build -A x64
+      - name: Bauen
+        run: cmake --build build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tekkdeck-VST3
+          path: build/Tekkdeck_artefacts/Release/VST3/
+      - name: Installer bauen
+        if: steps.ver.outputs.neu == 'ja'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.ver.outputs.version }}" installer.iss
+      - name: Veroeffentlichen
+        if: steps.ver.outputs.neu == 'ja'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Tekkdeck ${{ steps.ver.outputs.version }}
+          files: dist/Tekkdeck-Setup.exe
+          generate_release_notes: true
